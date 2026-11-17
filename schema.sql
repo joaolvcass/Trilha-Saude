@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(254) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   phone VARCHAR(20) NOT NULL DEFAULT '',
+  birth_date DATE DEFAULT NULL,
+  user_type VARCHAR(30) NOT NULL DEFAULT 'paciente',
   done TINYINT UNSIGNED NOT NULL DEFAULT 1,
   lemb BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -31,6 +33,8 @@ CREATE TABLE IF NOT EXISTS appointments (
   user_id BIGINT UNSIGNED NOT NULL,
   title VARCHAR(60) NOT NULL,
   who VARCHAR(60) NOT NULL DEFAULT '',
+  professional_id BIGINT UNSIGNED DEFAULT NULL,
+  location VARCHAR(150) NOT NULL DEFAULT '',
   appt_at DATETIME NOT NULL COMMENT 'Data/hora UTC',
   confirmed BOOLEAN NOT NULL DEFAULT FALSE,
   warned BOOLEAN NOT NULL DEFAULT FALSE,
@@ -77,3 +81,54 @@ CREATE TABLE IF NOT EXISTS messages (
   CONSTRAINT fk_messages_user FOREIGN KEY (user_id)
     REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+
+-- Extensões da modelagem (não apagam dados existentes).
+CREATE TABLE IF NOT EXISTS professionals (
+ id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ name VARCHAR(150) NOT NULL,
+ specialty VARCHAR(100) NOT NULL DEFAULT '',
+ professional_registration VARCHAR(50) NOT NULL DEFAULT ''
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS results (
+ id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ exam_id BIGINT UNSIGNED NOT NULL,
+ description TEXT NOT NULL,
+ file_path VARCHAR(255) DEFAULT NULL,
+ original_name VARCHAR(150) DEFAULT NULL,
+ mime_type VARCHAR(50) DEFAULT NULL,
+ result_date DATE NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ KEY ix_results_exam (exam_id),
+ CONSTRAINT fk_results_exam FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS referrals (
+ id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ user_id BIGINT UNSIGNED NOT NULL,
+ professional_id BIGINT UNSIGNED DEFAULT NULL,
+ destination VARCHAR(150) NOT NULL,
+ reason TEXT NOT NULL,
+ status VARCHAR(30) NOT NULL DEFAULT 'Pendente',
+ referral_date DATE NOT NULL,
+ KEY ix_referrals_user (user_id),
+ CONSTRAINT fk_referrals_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+ CONSTRAINT fk_referrals_professional FOREIGN KEY (professional_id) REFERENCES professionals(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS documents (
+ id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ user_id BIGINT UNSIGNED NOT NULL,
+ name VARCHAR(150) NOT NULL,
+ file_path VARCHAR(255) NOT NULL,
+ original_name VARCHAR(150) NOT NULL,
+ mime_type VARCHAR(50) NOT NULL,
+ uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ KEY ix_documents_user (user_id),
+ CONSTRAINT fk_documents_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Para bancos novos, FK opcional de consulta-profissional.
+ALTER TABLE appointments ADD CONSTRAINT fk_appointments_professional
+ FOREIGN KEY (professional_id) REFERENCES professionals(id) ON DELETE SET NULL;

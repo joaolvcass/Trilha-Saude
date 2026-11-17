@@ -5,6 +5,7 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const crypto = require('node:crypto');
 const path = require('node:path');
+const fs = require('node:fs/promises');
 const { promisify } = require('node:util');
 const { rateLimit } = require('express-rate-limit');
 
@@ -14,6 +15,9 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
 const COOKIE = 'trilhosaude_session';
 const SESSION_SECONDS = 7 * 24 * 60 * 60;
+const STORAGE = path.join(__dirname, 'private_uploads');
+const ALLOWED_MIMES = {'application/pdf':'.pdf','image/jpeg':'.jpg','image/png':'.png'};
+const MAX_FILE_BYTES = 3 * 1024 * 1024;
 const STATUSES = ['Agendado', 'Coletado', 'Em análise', 'Resultado disponível'];
 const STEPS = ['Cadastro', 'Consulta inicial', 'Coleta do exame', 'Análise do resultado', 'Retorno com a equipe'];
 
@@ -30,7 +34,7 @@ const pool = mysql.createPool({
 });
 
 app.disable('x-powered-by');
-app.use(express.json({ limit: '32kb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -133,7 +137,7 @@ async function requireAuth(req, res, next) {
     const token = readToken(req);
     if (!token) return fail(res, 401, 'Faça login para continuar.');
     const [rows] = await pool.execute(
-      `SELECT u.id, u.email, u.name, u.phone, u.done, u.lemb
+      `SELECT u.id, u.email, u.name, u.phone, u.birth_date, u.user_type, u.done, u.lemb
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ? AND s.expires_at > UTC_TIMESTAMP() LIMIT 1`,
       [hashToken(token)]
@@ -229,9 +233,9 @@ app.get('/api/me', async (req, res) => {
     }
   });
 
-  const [[appts], [exams], [notes], [msgs]] = await Promise.all([
+  const [[appts], [exams], [notes], [msgs], [results], [referrals], [documents], [professionals]] = await Promise.all([
     pool.execute(
-      `SELECT id, title, who, DATE_FORMAT(appt_at, '%Y-%m-%dT%H:%i:%sZ') AS date,
+      `SELECT id, title, who, professional_id, location, DATE_FORMAT(appt_at, '%Y-%m-%dT%H:%i:%sZ') AS date,
        confirmed AS ok, warned FROM appointments WHERE user_id = ? ORDER BY appt_at ASC`, [id]),
     pool.execute(
       `SELECT id, name, DATE_FORMAT(exam_date, '%Y-%m-%d') AS date, status
@@ -243,16 +247,25 @@ app.get('/api/me', async (req, res) => {
     pool.execute(
       `SELECT id, is_mine AS me, body AS t FROM
          (SELECT id, is_mine, body FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 300) AS recent
-       ORDER BY id ASC`, [id])
+       ORDER BY id ASC`, [id]),
+    pool.execute(`SELECT r.id, r.exam_id AS examId, r.description, r.original_name AS fileName,
+       DATE_FORMAT(r.result_date,'%Y-%m-%d') AS date, (r.file_path IS NOT NULL) AS hasFile
+       FROM results r JOIN exams e ON e.id=r.exam_id WHERE e.user_id=? ORDER BY r.result_date DESC,r.id DESC`,[id]),
+    pool.execute(`SELECT id, destination, reason, status, professional_id AS professionalId,
+       DATE_FORMAT(referral_date,'%Y-%m-%d') AS date FROM referrals WHERE user_id=? ORDER BY referral_date DESC,id DESC`,[id]),
+    pool.execute(`SELECT id,name,original_name AS fileName,mime_type AS mimeType,
+       DATE_FORMAT(uploaded_at,'%Y-%m-%d') AS date FROM documents WHERE user_id=? ORDER BY id DESC`,[id]),
+    pool.execute('SELECT id,name,specialty,professional_registration AS registration FROM professionals ORDER BY name ASC')
   ]);
   res.json({
     email: req.user.email, name: req.user.name,
     data: {
       appts: appts.map(a => ({ ...a, ok: !!a.ok, warned: !!a.warned })),
+      results: results.map(r=>({...r,hasFile:!!r.hasFile})), referrals, documents, professionals,
       exams,
       notes: notes.map(n => ({ ...n, r: !!n.r })),
       msgs: msgs.map(m => ({ ...m, me: !!m.me })),
-      done: req.user.done, lemb: !!req.user.lemb, phone: req.user.phone
+      done: req.user.done, lemb: !!req.user.lemb, phone: req.user.phone, birthDate: req.user.birth_date, userType: req.user.user_type
     }
   });
 });
@@ -261,7 +274,7 @@ app.patch('/api/me/profile', async (req, res) => {
   const phone = str(req.body?.phone);
   if (!name || phone.length > 20) return fail(res, 400, 'Nome ou telefone inválido.');
   await transaction(async db => {
-    await db.execute('UPDATE users SET name = ?, phone = ? WHERE id = ?', [name, phone, req.user.id]);
+    await db.execute('UPDATE users SET name = ?, phone = ?, birth_date = ? WHERE id = ?', [name, phone, birthDate, req.user.id]);
     await notification(db, req.user.id, 'Perfil atualizado', 'Seus dados foram salvos.');
   });
   res.json({ ok: true });
@@ -290,7 +303,10 @@ app.patch('/api/me/progress', async (req, res) => {
   res.json({ ok: true });
 });
 app.delete('/api/me', async (req, res) => {
+  const [files]=await pool.execute(`SELECT file_path AS fp FROM documents WHERE user_id=? UNION ALL
+   SELECT r.file_path AS fp FROM results r JOIN exams e ON e.id=r.exam_id WHERE e.user_id=?`,[req.user.id,req.user.id]);
   await pool.execute('DELETE FROM users WHERE id = ?', [req.user.id]);
+  await Promise.all(files.map(f=>removeUpload(f.fp)));
   clearSessionCookie(res);
   res.json({ ok: true });
 });
@@ -299,11 +315,12 @@ app.delete('/api/me', async (req, res) => {
 app.post('/api/appointments', async (req, res) => {
   const v = req.body || {};
   const title = str(v.title), who = str(v.who), at = validateMoment(v.date);
-  if (!title || title.length > 60 || who.length > 60 || !at) return fail(res, 400, 'Dados da consulta inválidos.');
+  const location=str(v.location); const professionalId=await optionalProfessional(v.professionalId);
+  if (!title || title.length > 60 || who.length > 60 || location.length > 150 || (v.professionalId && !professionalId) || !at) return fail(res, 400, 'Dados da consulta inválidos.');
   await transaction(async db => {
     await db.execute(
-      'INSERT INTO appointments (user_id, title, who, appt_at) VALUES (?, ?, ?, ?)',
-      [req.user.id, title, who, at]
+      'INSERT INTO appointments (user_id, title, who, appt_at, location, professional_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.user.id, title, who, at, location, professionalId]
     );
     await notification(db, req.user.id, 'Consulta agendada', title);
   });
@@ -351,7 +368,9 @@ app.patch('/api/exams/:id', async (req, res) => {
 });
 app.delete('/api/exams/:id', async (req, res) => {
   if (!validId(req.params.id)) return fail(res, 400, 'ID inválido.');
+  const [files]=await pool.execute('SELECT r.file_path AS fp FROM results r JOIN exams e ON e.id=r.exam_id WHERE e.id=? AND e.user_id=?',[req.params.id,req.user.id]);
   const [result] = await pool.execute('DELETE FROM exams WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+  if(result.affectedRows)await Promise.all(files.map(f=>removeUpload(f.fp)));
   if (!result.affectedRows) return fail(res, 404, 'Exame não encontrado.');
   res.json({ ok: true });
 });
@@ -383,6 +402,118 @@ app.post('/api/messages', async (req, res) => {
       [req.user.id, 'Resposta automática de demonstração: sua mensagem foi registrada somente neste protótipo.']);
   });
   res.status(201).json({ ok: true });
+});
+
+// ---------- Profissionais, encaminhamentos, resultados e documentos ----------
+const validText = (value,max)=>{const s=str(value);return s && s.length<=max ? s : null};
+const optionalProfessional = async(value)=>{
+  if(!value)return null;
+  if(!validId(value))throw Object.assign(new Error('Profissional inválido.'),{status:400});
+  const [rows]=await pool.execute('SELECT id FROM professionals WHERE id=? LIMIT 1',[value]);
+  if(!rows.length)throw Object.assign(new Error('Profissional não encontrado.'),{status:400});
+  return value;
+};
+function parseUpload(file){
+  if(!file || typeof file!=='object' || !ALLOWED_MIMES[file.mime] ||
+     typeof file.base64!=='string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(file.base64) ||
+     !file.base64.length || file.base64.length>Math.ceil(MAX_FILE_BYTES/3)*4+4)
+     throw Object.assign(new Error('Arquivo inválido. Envie PDF, JPG ou PNG com até 3 MB.'),{status:400});
+  const bytes=Buffer.from(file.base64,'base64');
+  if(!bytes.length || bytes.length>MAX_FILE_BYTES || bytes.toString('base64')!==file.base64)
+     throw Object.assign(new Error('Arquivo inválido ou maior que 3 MB.'),{status:400});
+  const valid=file.mime==='application/pdf'?bytes.subarray(0,5).toString()==='%PDF-':
+    file.mime==='image/png'?bytes.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex')):
+    bytes.subarray(0,3).equals(Buffer.from('ffd8ff','hex'));
+  if(!valid)throw Object.assign(new Error('O conteúdo não corresponde ao formato declarado.'),{status:400});
+  return {bytes,ext:ALLOWED_MIMES[file.mime],mime:file.mime,name:validText(file.name,150)||'arquivo'};
+}
+async function storeUpload(file){
+  const f=parseUpload(file);
+  await fs.mkdir(STORAGE,{recursive:true,mode:0o700});
+  const stored=crypto.randomBytes(24).toString('hex')+f.ext;
+  await fs.writeFile(path.join(STORAGE,stored),f.bytes,{flag:'wx',mode:0o600});
+  return {...f,stored};
+}
+async function removeUpload(stored){
+  if(stored && /^[a-f0-9]{48}\.(pdf|jpg|png)$/.test(stored))
+    await fs.unlink(path.join(STORAGE,stored)).catch(()=>{});
+}
+async function sendProtectedFile(req,res,table,join){
+  if(!validId(req.params.id))return fail(res,400,'ID inválido.');
+  const sql=table==='documents'?
+     'SELECT file_path AS filePath,mime_type AS mimeType,original_name AS name FROM documents WHERE id=? AND user_id=?':
+     'SELECT r.file_path AS filePath,r.mime_type AS mimeType,r.original_name AS name FROM results r JOIN exams e ON e.id=r.exam_id WHERE r.id=? AND e.user_id=?';
+  const [rows]=await pool.execute(sql,[req.params.id,req.user.id]);
+  if(!rows.length || !rows[0].filePath)return fail(res,404,'Arquivo não encontrado.');
+  const f=rows[0];
+  if(!/^[a-f0-9]{48}\.(pdf|jpg|png)$/.test(f.filePath))return fail(res,404,'Arquivo não encontrado.');
+  res.setHeader('Content-Type',f.mimeType);
+  res.setHeader('Content-Disposition',`attachment; filename="${f.filePath}"`);
+  res.setHeader('Cache-Control','no-store');
+  return res.sendFile(path.join(STORAGE,f.filePath));
+}
+app.post('/api/professionals',async(req,res)=>{
+  const name=validText(req.body?.name,150),specialty=str(req.body?.specialty),registration=str(req.body?.registration);
+  if(!name || specialty.length>100 || registration.length>50)return fail(res,400,'Dados do profissional inválidos.');
+  await pool.execute('INSERT INTO professionals (name,specialty,professional_registration) VALUES (?,?,?)',[name,specialty,registration]);
+  res.status(201).json({ok:true});
+});
+app.post('/api/referrals',async(req,res)=>{
+  const v=req.body||{},destination=validText(v.destination,150),reason=validText(v.reason,5000),date=validateDay(v.date);
+  const professionalId=await optionalProfessional(v.professionalId);
+  if(!destination||!reason||!date)return fail(res,400,'Dados do encaminhamento inválidos.');
+  await pool.execute('INSERT INTO referrals (user_id,professional_id,destination,reason,referral_date) VALUES (?,?,?,?,?)',
+    [req.user.id,professionalId,destination,reason,date]);
+  res.status(201).json({ok:true});
+});
+app.patch('/api/referrals/:id',async(req,res)=>{
+  const status=req.body?.status;
+  if(!validId(req.params.id)||!['Pendente','Agendado','Concluído','Cancelado'].includes(status))return fail(res,400,'Situação inválida.');
+  const [r]=await pool.execute('UPDATE referrals SET status=? WHERE id=? AND user_id=?',[status,req.params.id,req.user.id]);
+  if(!r.affectedRows)return fail(res,404,'Encaminhamento não encontrado.');res.json({ok:true});
+});
+app.delete('/api/referrals/:id',async(req,res)=>{
+  if(!validId(req.params.id))return fail(res,400,'ID inválido.');
+  const [r]=await pool.execute('DELETE FROM referrals WHERE id=? AND user_id=?',[req.params.id,req.user.id]);
+  if(!r.affectedRows)return fail(res,404,'Encaminhamento não encontrado.');res.json({ok:true});
+});
+app.post('/api/results',async(req,res)=>{
+  const v=req.body||{},examId=validId(v.examId),description=validText(v.description,5000),date=validateDay(v.date);
+  if(!examId||!description||!date)return fail(res,400,'Dados do resultado inválidos.');
+  const [[exam]]=await pool.execute('SELECT id FROM exams WHERE id=? AND user_id=?',[examId,req.user.id]);
+  if(!exam)return fail(res,404,'Exame não encontrado.');
+  const file=v.file?await storeUpload(v.file):null;
+  try{
+    await pool.execute('INSERT INTO results (exam_id,description,result_date,file_path,original_name,mime_type) VALUES (?,?,?,?,?,?)',
+      [examId,description,date,file?.stored||null,file?.name||null,file?.mime||null]);
+  }catch(err){if(file)await removeUpload(file.stored);throw err;}
+  res.status(201).json({ok:true});
+});
+app.delete('/api/results/:id',async(req,res)=>{
+  if(!validId(req.params.id))return fail(res,400,'ID inválido.');
+  const [rows]=await pool.execute('SELECT r.file_path AS filePath FROM results r JOIN exams e ON e.id=r.exam_id WHERE r.id=? AND e.user_id=?',[req.params.id,req.user.id]);
+  if(!rows.length)return fail(res,404,'Resultado não encontrado.');
+  await pool.execute('DELETE r FROM results r JOIN exams e ON e.id=r.exam_id WHERE r.id=? AND e.user_id=?',[req.params.id,req.user.id]);
+  await removeUpload(rows[0].filePath);res.json({ok:true});
+});
+app.get('/api/results/:id/file',(req,res)=>sendProtectedFile(req,res,'results'));
+app.post('/api/documents',async(req,res)=>{
+  const name=validText(req.body?.name,150);
+  if(!name)return fail(res,400,'Informe o nome do documento.');
+  const file=await storeUpload(req.body?.file);
+  try{
+    await pool.execute('INSERT INTO documents (user_id,name,file_path,original_name,mime_type) VALUES (?,?,?,?,?)',
+      [req.user.id,name,file.stored,file.name,file.mime]);
+  }catch(err){await removeUpload(file.stored);throw err;}
+  res.status(201).json({ok:true});
+});
+app.get('/api/documents/:id/file',(req,res)=>sendProtectedFile(req,res,'documents'));
+app.delete('/api/documents/:id',async(req,res)=>{
+  if(!validId(req.params.id))return fail(res,400,'ID inválido.');
+  const [rows]=await pool.execute('SELECT file_path AS filePath FROM documents WHERE id=? AND user_id=?',[req.params.id,req.user.id]);
+  if(!rows.length)return fail(res,404,'Documento não encontrado.');
+  await pool.execute('DELETE FROM documents WHERE id=? AND user_id=?',[req.params.id,req.user.id]);
+  await removeUpload(rows[0].filePath);res.json({ok:true});
 });
 
 // ---------- Arquivos do front-end ----------
