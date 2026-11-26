@@ -272,9 +272,18 @@ app.get('/api/me', async (req, res) => {
 app.patch('/api/me/profile', async (req, res) => {
   const name = validateName(req.body?.name);
   const phone = str(req.body?.phone);
-  if (!name || phone.length > 20) return fail(res, 400, 'Nome ou telefone inválido.');
+  const rawBirthDate = req.body?.birthDate;
+  const birthDate = rawBirthDate ? validateDay(rawBirthDate) : null;
+
+  if (!name || phone.length > 20 || (rawBirthDate && !birthDate)) {
+    return fail(res, 400, 'Nome, telefone ou data de nascimento inválidos.');
+  }
+
   await transaction(async db => {
-    await db.execute('UPDATE users SET name = ?, phone = ?, birth_date = ? WHERE id = ?', [name, phone, birthDate, req.user.id]);
+    await db.execute(
+      'UPDATE users SET name = ?, phone = ?, birth_date = ? WHERE id = ?',
+      [name, phone, birthDate, req.user.id]
+    );
     await notification(db, req.user.id, 'Perfil atualizado', 'Seus dados foram salvos.');
   });
   res.json({ ok: true });

@@ -1,3 +1,7 @@
+-- Trilha Saúde - instalação de banco novo
+-- Execute este arquivo em uma instância MySQL 8+.
+-- Para atualizar uma instalação antiga, use migration_01_modelagem.sql.
+
 CREATE DATABASE IF NOT EXISTS trilhasaude
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE trilhasaude;
@@ -28,6 +32,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS professionals (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name VARCHAR(150) NOT NULL,
+  specialty VARCHAR(100) NOT NULL DEFAULT '',
+  professional_registration VARCHAR(50) NOT NULL DEFAULT '',
+  PRIMARY KEY (id)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS appointments (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   user_id BIGINT UNSIGNED NOT NULL,
@@ -40,8 +52,11 @@ CREATE TABLE IF NOT EXISTS appointments (
   warned BOOLEAN NOT NULL DEFAULT FALSE,
   PRIMARY KEY (id),
   KEY ix_appointments_user_date (user_id, appt_at),
+  KEY ix_appointments_professional (professional_id),
   CONSTRAINT fk_appointments_user FOREIGN KEY (user_id)
-    REFERENCES users(id) ON DELETE CASCADE
+    REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_appointments_professional FOREIGN KEY (professional_id)
+    REFERENCES professionals(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS exams (
@@ -82,53 +97,48 @@ CREATE TABLE IF NOT EXISTS messages (
     REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
-
--- Extensões da modelagem (não apagam dados existentes).
-CREATE TABLE IF NOT EXISTS professionals (
- id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
- name VARCHAR(150) NOT NULL,
- specialty VARCHAR(100) NOT NULL DEFAULT '',
- professional_registration VARCHAR(50) NOT NULL DEFAULT ''
-) ENGINE=InnoDB;
-
 CREATE TABLE IF NOT EXISTS results (
- id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
- exam_id BIGINT UNSIGNED NOT NULL,
- description TEXT NOT NULL,
- file_path VARCHAR(255) DEFAULT NULL,
- original_name VARCHAR(150) DEFAULT NULL,
- mime_type VARCHAR(50) DEFAULT NULL,
- result_date DATE NOT NULL,
- created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
- KEY ix_results_exam (exam_id),
- CONSTRAINT fk_results_exam FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  exam_id BIGINT UNSIGNED NOT NULL,
+  description TEXT NOT NULL,
+  file_path VARCHAR(255) DEFAULT NULL,
+  original_name VARCHAR(150) DEFAULT NULL,
+  mime_type VARCHAR(50) DEFAULT NULL,
+  result_date DATE NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY ix_results_exam (exam_id),
+  CONSTRAINT fk_results_exam FOREIGN KEY (exam_id)
+    REFERENCES exams(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS referrals (
- id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
- user_id BIGINT UNSIGNED NOT NULL,
- professional_id BIGINT UNSIGNED DEFAULT NULL,
- destination VARCHAR(150) NOT NULL,
- reason TEXT NOT NULL,
- status VARCHAR(30) NOT NULL DEFAULT 'Pendente',
- referral_date DATE NOT NULL,
- KEY ix_referrals_user (user_id),
- CONSTRAINT fk_referrals_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
- CONSTRAINT fk_referrals_professional FOREIGN KEY (professional_id) REFERENCES professionals(id) ON DELETE SET NULL
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  professional_id BIGINT UNSIGNED DEFAULT NULL,
+  destination VARCHAR(150) NOT NULL,
+  reason TEXT NOT NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'Pendente',
+  referral_date DATE NOT NULL,
+  PRIMARY KEY (id),
+  KEY ix_referrals_user (user_id),
+  KEY ix_referrals_professional (professional_id),
+  CONSTRAINT fk_referrals_user FOREIGN KEY (user_id)
+    REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_referrals_professional FOREIGN KEY (professional_id)
+    REFERENCES professionals(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS documents (
- id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
- user_id BIGINT UNSIGNED NOT NULL,
- name VARCHAR(150) NOT NULL,
- file_path VARCHAR(255) NOT NULL,
- original_name VARCHAR(150) NOT NULL,
- mime_type VARCHAR(50) NOT NULL,
- uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
- KEY ix_documents_user (user_id),
- CONSTRAINT fk_documents_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  file_path VARCHAR(255) NOT NULL,
+  original_name VARCHAR(150) NOT NULL,
+  mime_type VARCHAR(50) NOT NULL,
+  uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY ix_documents_user (user_id),
+  CONSTRAINT fk_documents_user FOREIGN KEY (user_id)
+    REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
-
--- Para bancos novos, FK opcional de consulta-profissional.
-ALTER TABLE appointments ADD CONSTRAINT fk_appointments_professional
- FOREIGN KEY (professional_id) REFERENCES professionals(id) ON DELETE SET NULL;
