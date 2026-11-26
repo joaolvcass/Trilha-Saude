@@ -1,100 +1,82 @@
 # Trilha Saúde
 
-Projeto acadêmico para acompanhamento da jornada de cuidado do paciente. A aplicação reúne consultas, exames, resultados, encaminhamentos, documentos e notificações em uma interface responsiva para desktop e mobile.
+O Trilha Saúde é um projeto acadêmico demonstrativo para acompanhamento da jornada de cuidado do paciente. Permite registrar consultas, exames, resultados, encaminhamentos e documentos, acompanhar etapas da jornada e receber notificações.
 
-## Tecnologias
+Este guia ensina a instalar e utilizar o sistema localmente no seu computador.
 
-- Frontend: HTML, CSS e JavaScript
-- Backend: Node.js 20+ e Express
-- Banco de dados: MySQL 8+
-- Comunicação: API REST na mesma origem do frontend
+## 1. Pré-requisitos
 
-## Estruturasdd
+Antes de começar, instale:
+
+- [Node.js](https://nodejs.org/) — versão 20 ou superior, incluindo o npm.
+- [MySQL Server](https://dev.mysql.com/downloads/mysql/) — versão 8 ou superior.
+- [MySQL Workbench](https://dev.mysql.com/downloads/workbench/) — opcional, recomendado para configurar o banco de dados por uma interface gráfica.
+
+Você também precisará de um navegador e de conexão com a internet para instalar as dependências do projeto.
+
+Para conferir a instalação do Node.js e do npm, abra um terminal e execute:
+
+```bash
+node -v
+npm -v
+```
+
+Certifique-se de que o serviço do MySQL esteja em execução e de que você saiba o nome de usuário e a senha configurados durante sua instalação.
+
+## 2. Baixe e extraia o projeto
+
+Baixe o arquivo ZIP do projeto e extraia todo o conteúdo em uma pasta do seu computador.
+
+A pasta principal contém:
 
 ```text
 Trilha-Saude/
-├── frontend/              # HTML, CSS e JavaScript originais
-│   ├── index.html
-│   ├── style.css
-│   └── app.js
-├── backend/
-│   ├── server.js
-│   ├── src/
-│   │   ├── app.js
-│   │   ├── config/
-│   │   ├── constants/
-│   │   ├── routes/
-│   │   ├── controllers/
-│   │   ├── middleware/
-│   │   ├── services/
-│   │   └── utils/
-│   ├── scripts/check.js
-│   ├── package.json
-│   ├── package-lock.json
-│   └── .env.example
-├── database/
-│   ├── schema.sql
-│   └── migration_01_modelagem.sql  # Se disponível no projeto original
-├── .gitattributes
-├── .gitignore
+├── frontend/       # Interface do sistema
+├── backend/        # Servidor e configurações
+├── database/       # Arquivo de criação do banco
 └── README.md
 ```
 
-A pasta `backend/private_uploads/` é criada automaticamente quando um documento ou resultado com arquivo é enviado. Ela não deve ser publicada no Git.
+Não mova os arquivos individualmente: mantenha a estrutura de pastas original.
 
-## Antes de utilizar esta versão reorganizada
+## 3. Configure o banco de dados
 
-A entrega inclui os três arquivos originais do frontend, mantidos sem alterações. O arquivo `migration_01_modelagem.sql` citado na versão anterior do README não foi enviado; não foi recriado. Ele não é necessário para uma instalação nova ou um banco já atualizado.
+1. Abra o MySQL Workbench e conecte-se ao servidor MySQL local com seu usuário e senha.
+2. No menu **File > Open SQL Script**, abra o arquivo `database/schema.sql` da pasta do projeto.
+3. Execute todo o script (ícone de raio na barra de ferramentas).
 
-Para atualizar o projeto existente, faça backup e use uma branch do Git. Os três arquivos originais de `public/` já estão em `frontend/`. Caso sua cópia local tenha arquivos adicionais, preserve-os nessa pasta. Se existir uma migração original, mova-a para `database/`. Mova seu `.env` local para `backend/.env` e, se houver arquivos enviados por usuários, mova **todo** o conteúdo de `private_uploads/` para `backend/private_uploads/` sem renomear os arquivos. Não execute duas versões simultaneamente. Não apague a versão antiga até testar a nova.
+O script cria o banco `trilhasaude` e as tabelas necessárias para o funcionamento do sistema.
 
-A reorganização não exige alterar o banco existente se ele já estiver atualizado. `schema.sql` e `package-lock.json` foram mantidos sem alterações de conteúdo. Os 28 endpoints e as funções que os atendem foram preservados; a API continua na mesma origem do frontend.
+Se preferir utilizar o cliente de linha de comando do MySQL, conecte-se com um usuário autorizado a criar o banco e as tabelas e execute o script completo.
 
-## Instalação nova
+## 4. Instale as dependências
 
-### 1. Pré-requisitos
-
-Instale:
-
-- Node.js 20 ou superior
-- npm
-- MySQL Server 8 ou superior
-
-### 2. Baixe o projeto e instale as dependências
+Abra um terminal na pasta principal `Trilha-Saude` e execute:
 
 ```bash
-git clone https://github.com/joaolvcass/Trilha-Saude.git
-cd Trilha-Saude/backend
+cd backend
 npm install
 ```
 
-### 3. Crie o banco
+A instalação pode levar alguns minutos. Os demais comandos deste guia devem ser executados dentro da pasta `backend/`.
 
-Abra o MySQL Workbench, o cliente `mysql` ou outra ferramenta compatível e execute todo o arquivo:
+## 5. Configure a conexão com o MySQL
 
-```text
-database/schema.sql
-```
+Na pasta `backend/`, existe um arquivo chamado `.env.example`. Crie uma cópia dele com o nome `.env`.
 
-O arquivo cria o banco `trilhasaude` e todas as tabelas necessárias. Para uma instalação nova não é necessário executar a migração.
-
-### 4. Configure o ambiente
-
-Na pasta `backend/`, copie `.env.example` para `.env`.
-
-PowerShell:
+No Windows (PowerShell):
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Linux/macOS:
+No Linux ou macOS:
 
 ```bash
 cp .env.example .env
 ```
 
-Depois edite somente o `.env` com as credenciais do seu MySQL:
+Abra o arquivo `backend/.env` em um editor de texto e configure-o conforme o exemplo:
 
 ```dotenv
 NODE_ENV=development
@@ -108,115 +90,69 @@ DB_PASSWORD=sua_senha_mysql
 DB_NAME=trilhasaude
 ```
 
-O `DB_NAME` deve permanecer `trilhasaude` quando o banco for criado pelo `schema.sql` deste repositório.
+Substitua `seu_usuario_mysql` e `sua_senha_mysql` pelas credenciais do seu MySQL. Se o usuário for `root`, informe `DB_USER=root`.
 
-Nunca publique o arquivo `.env`. Ele está incluído no `.gitignore` e o repositório fornece somente o `.env.example`.
+Mantenha `DB_NAME=trilhasaude`. Caso o MySQL tenha sido configurado em outra porta, ajuste `DB_PORT`.
 
-### 5. Inicie o projeto
+O arquivo deve se chamar exatamente `.env`, sem a extensão `.txt`. Não compartilhe esse arquivo, pois ele contém suas credenciais.
+
+## 6. Inicie o sistema
+
+Com o MySQL em execução, permaneça na pasta `backend/` e execute:
 
 ```bash
 npm start
 ```
 
-Abra no navegador:
+Quando o servidor iniciar corretamente, aparecerá no terminal uma mensagem semelhante a:
 
 ```text
-http://127.0.0.1:3000
+TrilhaSaúde: http://127.0.0.1:3000
 ```
 
-Não abra `frontend/index.html` diretamente e não utilize Live Server. O frontend depende da API Express disponível no mesmo servidor.
+Abra o navegador e acesse:
 
-## Atualizando uma instalação antiga
+**[http://127.0.0.1:3000](http://127.0.0.1:3000)**
 
-Se você já possui uma versão anterior do banco `trilhasaude`, faça backup e execute:
+Mantenha o terminal aberto enquanto estiver utilizando o sistema. Não abra o arquivo `index.html` diretamente e não utilize o Live Server: o próprio servidor Node.js disponibiliza a interface e a API.
 
-```text
-database/migration_01_modelagem.sql
-```
+## 7. Primeiro acesso
 
-Este arquivo não acompanha a entrega atual: use a migração original, se necessária. Não execute migrações desnecessárias em um banco já atualizado.
+Na tela inicial, selecione **Ainda não tenho conta. Cadastrar**. Informe seu nome, e-mail e uma senha de pelo menos 8 caracteres. Após criar a conta, você poderá acessar as funcionalidades do sistema.
 
-A migração adiciona somente as estruturas que podem estar ausentes, incluindo:
+Utilize dados fictícios para experimentar as consultas, exames, jornada, registros e notificações. O chat é apenas demonstrativo e não conecta você a uma equipe de saúde real.
 
-- data de nascimento e tipo de usuário;
-- profissionais;
-- associação opcional de profissionais às consultas;
-- local de consulta;
-- resultados de exames;
-- encaminhamentos;
-- documentos.
+## 8. Como encerrar e acessar novamente
 
-Depois atualize os arquivos do projeto e execute normalmente, na pasta `backend/`:
+Para encerrar o servidor, pressione `Ctrl+C` no terminal em que executou `npm start`.
+
+Nos próximos acessos, certifique-se de que o MySQL esteja em execução, abra um terminal na pasta principal do projeto e execute:
 
 ```bash
-npm install
+cd backend
 npm start
 ```
 
-Para uma instalação nova, use `schema.sql`, e não a migração.
+Depois, acesse novamente [http://127.0.0.1:3000](http://127.0.0.1:3000). Não é necessário reinstalar as dependências ou recriar o banco a cada acesso.
 
+## 9. Solução de problemas
 
-## Atualizando este repositório no GitHub
+| Problema | O que verificar |
+| --- | --- |
+| `node` ou `npm` não reconhecido | Confirme a instalação do Node.js e reabra o terminal. |
+| Erro de dependências ou `Cannot find module` | Execute `npm install` dentro da pasta `backend/`. |
+| Erro `Access denied` | Confira o usuário e a senha do MySQL no arquivo `.env`. |
+| Erro `ECONNREFUSED` ao iniciar | Verifique se o MySQL está em execução e se `DB_HOST` e `DB_PORT` estão corretos. |
+| Banco ou tabela não encontrada | Confira se executou todo o arquivo `database/schema.sql` e se `DB_NAME=trilhasaude`. |
+| Porta 3000 ocupada (`EADDRINUSE`) | Encerre o outro servidor ou altere `PORT` no `.env` para uma porta livre, como 3001. Nesse caso, acesse o novo endereço correspondente. |
+| Navegador não conecta ao sistema | Verifique se `npm start` está em execução e se o endereço corresponde à porta configurada. |
 
-Se o seu repositório antigo já rastreava o arquivo `.env`, execute uma única vez, na pasta do projeto:
+Se necessário, o comando `npm run check`, executado na pasta `backend/`, verifica a sintaxe dos arquivos JavaScript. Ele não substitui o teste de funcionamento com o MySQL.
 
-```bash
-git rm --cached .env
-# Se o arquivo backend/.env também estiver rastreado:
-# git rm --cached backend/.env
-```
+## 10. Armazenamento e cuidados
 
-O comando retira o `.env` do Git sem apagar a cópia local. Depois confirme que `backend/.env.example` existe e publique as alterações normalmente:
+Os dados cadastrados são armazenados no banco MySQL local. Documentos e arquivos de resultados são armazenados na pasta `backend/private_uploads/`, criada automaticamente no primeiro envio. São aceitos arquivos PDF, JPEG e PNG de até 3 MB cada.
 
-```bash
-git add .
-git commit -m "corrige instalacao e configuracao do projeto"
-git push origin main
-```
+Para preservar seus registros, mantenha backups do banco de dados e da pasta de arquivos privados.
 
-Antes do commit, use `git status` para confirmar que `.env` e `private_uploads/` não aparecem entre os arquivos que serão enviados.
-
-## Comandos disponíveis
-
-Execute os comandos na pasta `backend/`.
-
-```bash
-npm start
-```
-
-Inicia o servidor.
-
-```bash
-npm run dev
-```
-
-Inicia o Node.js em modo `--watch`.
-
-```bash
-npm run check
-```
-
-Verifica a sintaxe de todos os módulos do backend e do JavaScript do frontend.
-
-## Verificações da reorganização
-
-- `npm run check`: aprovado, 35 arquivos JavaScript.
-- 28 endpoints: mesmos métodos e caminhos da versão original.
-- HTML, CSS, JavaScript do frontend, schema SQL, lockfile e configurações: preservados byte a byte.
-- Testes HTTP dos 28 endpoints: aprovados em ambiente simulado, executando os controladores e middlewares do projeto, com adaptadores de Express, rate-limit e MySQL e banco SQLite temporário em memória. Foram testados cadastro, login, sessão, perfil, jornada, consultas, exames, mensagens, notificações, profissionais, encaminhamentos, resultados, documentos, uploads e downloads, exclusões, controle de acesso e rejeição de origem externa e arquivo inválido.
-- Frontend: JavaScript executado em VM Node.js com DOM mínimo simulado e acesso HTTP ao servidor de teste; renderização das telas, cadastro, jornada, chat e logout aprovados.
-
-A instalação das dependências npm falhou por indisponibilidade de rede/DNS (`EAI_AGAIN`), e o navegador local bloqueou o acesso por política do ambiente (`ERR_BLOCKED_BY_ADMINISTRATOR`). Não foi possível validar o Express real, o limitador de requisições real, a instância MySQL 8 ou a interface em um navegador real. Os testes simulados não substituem essa validação. Execute `npm install`, `npm run check` e `npm start` em uma máquina com MySQL configurado e teste os fluxos no navegador antes de publicar. Nenhum adaptador de teste, banco temporário ou dado fictício foi incorporado ao projeto.
-
-## Dados e segurança
-
-- As senhas são armazenadas com `scrypt` e sal individual.
-- A sessão usa cookie `HttpOnly` e somente o hash do token fica no MySQL.
-- As consultas SQL usam parâmetros.
-- Os dados das rotas autenticadas são filtrados pelo usuário logado.
-- Documentos e arquivos de resultados ficam em `backend/private_uploads/`, fora da pasta pública, e são entregues por rotas autenticadas.
-- Os formatos de arquivo atualmente aceitos são PDF, JPEG e PNG, com limite de 3 MB por arquivo.
-
-## Importante
-
-Este é um projeto acadêmico demonstrativo. Não utilize dados médicos reais nem publique a aplicação como serviço de saúde sem uma revisão formal de segurança, privacidade, LGPD, HTTPS, gestão de segredos, auditoria, backups, controle de acesso e políticas de retenção de dados.
+**Importante:** o Trilha Saúde é um projeto acadêmico demonstrativo, destinado à execução local. Não utilize dados médicos reais nem o considere um serviço de saúde ou atendimento profissional.
